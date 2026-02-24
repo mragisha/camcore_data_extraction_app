@@ -1,0 +1,5 @@
+# local data - do not push
+data/
+
+# macOS
+.DS_Store

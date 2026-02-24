@@ -1,0 +1,472 @@
+library(shiny)
+library(dplyr)
+library(terra)
+library(DT)
+library(stringr)
+
+# ============================================================
+# UI FUNCTION
+# ============================================================
+uploadOrExtractUI <- function(id) {
+  ns <- NS(id)
+  
+  tagList(
+    radioButtons(
+      ns("data_source"),
+      "Choose Data Source:",
+      choices = c(
+        "Upload existing CSV file" = "upload",
+        "Extract bio variables from coordinates" = "extract"
+      ),
+      selected = "upload"
+    ),
+    
+    # Panel for CSV upload
+    conditionalPanel(
+      condition = sprintf("input['%s'] == 'upload'", ns("data_source")),
+      fileInput(ns("csv_file"), "Upload CSV File", accept = ".csv"),
+      downloadButton(ns("sample_download"), "Download Sample CSV", class = "btn-sm btn-info")
+    ),
+    
+    # Panel for bio variable extraction
+    conditionalPanel(
+      condition = sprintf("input['%s'] == 'extract'", ns("data_source")),
+      
+      radioButtons(
+        ns("coord_input_method"),
+        "How would you like to provide coordinates?",
+        choices = c("Upload CSV file" = "file", "Enter manually" = "manual"),
+        selected = "file"
+      ),
+      
+      # File upload sub-option
+      conditionalPanel(
+        condition = sprintf("input['%s'] == 'file'", ns("coord_input_method")),
+        fileInput(ns("coords_file"), "Upload Coordinates CSV", accept = ".csv"),
+        downloadButton(ns("coords_sample_download"), "Download Sample Coordinates CSV", 
+                       class = "btn-sm btn-info")
+      ),
+      
+      # Manual entry sub-option
+      conditionalPanel(
+        condition = sprintf("input['%s'] == 'manual'", ns("coord_input_method")),
+        div(
+          style = "background-color: #f8f9fa; padding: 15px; border-radius: 5px; border: 1px solid #ddd;",
+          h5("Enter Coordinate Information"),
+          fluidRow(
+            column(6, textInput(ns("manual_id"), "ID / Name:", placeholder = "e.g., Site_1")),
+            column(6, numericInput(ns("manual_elevation"), "Elevation (m):", value = 0))
+          ),
+          fluidRow(
+            column(6, numericInput(ns("manual_lat"), "Latitude:", value = NULL, min = -90, max = 90, step = 0.00001)),
+            column(6, numericInput(ns("manual_lon"), "Longitude:", value = NULL, min = -180, max = 180, step = 0.00001))
+          ),
+          actionButton(ns("add_coord"), "Add Coordinate", icon = icon("plus"), class = "btn-success"),
+          actionButton(ns("clear_coords"), "Clear All", icon = icon("trash"), class = "btn-warning")
+        ),
+        hr(),
+        h5("Coordinates Table:"),
+        DTOutput(ns("manual_coords_table")),
+        uiOutput(ns("coord_count_display"))
+      ),
+      
+      hr(),
+      h4("Climate Extraction Settings"),
+      
+      # NEW: SSP Scenario Selection
+      selectInput(
+        ns("ssp_scenario"),
+        "Select Climate Scenario:",
+        choices = c(
+          "SSP1-2.6 (Low emissions)" = "ssp126",
+          "SSP2-4.5 (Medium emissions)" = "ssp245",
+          "SSP3-7.0 (High emissions)" = "ssp370",
+          "SSP5-8.5 (Very high emissions)" = "ssp585"
+        ),
+        selected = "ssp245"
+      ),
+      
+      p(class = "text-muted", 
+        "SSP scenarios represent different future climate pathways based on socioeconomic development and emissions."),
+      
+      actionButton(ns("extract_btn"), "Extract Bio Variables", 
+                   class = "btn-primary btn-lg", icon = icon("download")),
+      uiOutput(ns("extraction_status")),
+      br(),
+      
+      # Data preview section
+      conditionalPanel(
+        condition = sprintf("output['%s']", ns("show_preview")),
+        hr(),
+        h4("Extracted Data Preview"),
+        DTOutput(ns("extracted_data_table")),
+        br()
+      ),
+      
+      uiOutput(ns("download_ui"))
+    )
+  )
+}
+
+# ============================================================
+# SERVER FUNCTION
+# ============================================================
+uploadOrExtractServer <- function(id, 
+                                  sampleFilePath = "sample_dataset.csv",
+                                  coordsSamplePath = "sample_coordinates.csv",
+                                  worldclimDir = "WorldClim_Data_2021_2040/") {
+  
+  moduleServer(id, function(input, output, session) {
+    ns <- session$ns
+    
+    # Reactive value to store final processed data
+    finalData <- reactiveVal(NULL)
+    
+    # Reactive value to store manually entered coordinates
+    manualCoords <- reactiveVal(data.frame(
+      id = character(),
+      lat = numeric(),
+      lon = numeric(),
+      elevation = numeric(),
+      stringsAsFactors = FALSE
+    ))
+    
+    # Control preview display
+    output$show_preview <- reactive({
+      !is.null(finalData())
+    })
+    outputOptions(output, "show_preview", suspendWhenHidden = FALSE)
+    
+    # --- 1. SAMPLE DOWNLOADS ---
+    output$sample_download <- downloadHandler(
+      filename = function() { "sample_dataset.csv" },
+      content = function(file) {
+        if(file.exists(sampleFilePath)){
+          file.copy(sampleFilePath, file)
+        } else {
+          # Create a sample with bio variables
+          sample_data <- data.frame(
+            id = c("Site1", "Site2", "Site3"),
+            lat = c(-29.5, -30.2, -28.8),
+            lon = c(-51.2, -50.8, -52.1),
+            elevation = c(450, 320, 580),
+            bio1 = c(165, 170, 160),
+            bio2 = c(95, 92, 98),
+            bio12 = c(1500, 1450, 1550)
+          )
+          write.csv(sample_data, file, row.names = FALSE)
+        }
+      }
+    )
+    
+    output$coords_sample_download <- downloadHandler(
+      filename = function() { "sample_coordinates.csv" },
+      content = function(file) {
+        if(file.exists(coordsSamplePath)){
+          file.copy(coordsSamplePath, file)
+        } else {
+          # Create sample coordinates file
+          sample_coords <- data.frame(
+            id = c("Site1", "Site2", "Site3"),
+            lat = c(-29.5, -30.2, -28.8),
+            lon = c(-51.2, -50.8, -52.1),
+            elevation = c(450, 320, 580)
+          )
+          write.csv(sample_coords, file, row.names = FALSE)
+        }
+      }
+    )
+    
+    # --- 2. HANDLE UPLOADED CSV DATA ---
+    observe({
+      req(input$data_source == "upload")
+      req(input$csv_file)
+      
+      tryCatch({
+        data <- read.csv(input$csv_file$datapath, stringsAsFactors = FALSE)
+        
+        # Validate required columns
+        required_cols <- c("id", "lat", "lon")
+        if(!all(required_cols %in% names(data))) {
+          showNotification(
+            paste("CSV must contain columns:", paste(required_cols, collapse = ", ")),
+            type = "error"
+          )
+          return()
+        }
+        
+        finalData(data)
+        showNotification("CSV file loaded successfully!", type = "message")
+        
+      }, error = function(e) {
+        showNotification(paste("Error reading CSV:", e$message), type = "error")
+      })
+    })
+    
+    # --- 3. ADD COORDINATE LOGIC ---
+    observeEvent(input$add_coord, {
+      new_id <- input$manual_id
+      new_lat <- input$manual_lat
+      new_lon <- input$manual_lon
+      new_elev <- input$manual_elevation
+      
+      # Validation
+      if(is.null(new_id) || new_id == "") {
+        showNotification("Please enter an ID", type = "warning")
+        return()
+      }
+      if(is.na(new_lat) || is.na(new_lon)) {
+        showNotification("Valid Latitude and Longitude required", type = "error")
+        return()
+      }
+      
+      # Check for duplicate IDs
+      if(new_id %in% manualCoords()$id) {
+        showNotification("ID already exists. Please use a unique ID.", type = "warning")
+        return()
+      }
+      
+      # Update Dataframe
+      new_row <- data.frame(
+        id = as.character(new_id),
+        lat = as.numeric(new_lat),
+        lon = as.numeric(new_lon),
+        elevation = ifelse(is.na(new_elev), 0, as.numeric(new_elev)),
+        stringsAsFactors = FALSE
+      )
+      
+      manualCoords(rbind(manualCoords(), new_row))
+      
+      # Reset inputs
+      updateTextInput(session, "manual_id", value = "")
+      updateNumericInput(session, "manual_lat", value = NA)
+      updateNumericInput(session, "manual_lon", value = NA)
+      updateNumericInput(session, "manual_elevation", value = 0)
+      
+      showNotification("Coordinate added successfully!", type = "message")
+    })
+    
+    observeEvent(input$clear_coords, {
+      manualCoords(data.frame(id=character(), lat=numeric(), lon=numeric(), elevation=numeric()))
+      showNotification("All coordinates cleared.", type = "message")
+    })
+    
+    # --- 4. RENDERING TABLES & UI ---
+    output$manual_coords_table <- renderDT({
+      df <- manualCoords()
+      req(nrow(df) > 0)
+      datatable(
+        df, 
+        options = list(
+          dom = 'tp', 
+          pageLength = 5,
+          scrollX = TRUE
+        ), 
+        rownames = FALSE
+      )
+    })
+    
+    output$coord_count_display <- renderUI({
+      count <- nrow(manualCoords())
+      if(count == 0) {
+        div(style="color:#856404; background-color:#fff3cd; padding:10px; border-radius:5px; margin-top:10px;", 
+            icon("info-circle"), " No coordinates added yet.")
+      } else {
+        div(style="color:#155724; background-color:#d4edda; padding:10px; border-radius:5px; margin-top:10px;", 
+            icon("check-circle"), sprintf(" %d coordinate%s ready for extraction.", 
+                                          count, ifelse(count > 1, "s", "")))
+      }
+    })
+    
+    # --- 5. EXTRACTION LOGIC (SINGLE SSP SELECTION) ---
+    observeEvent(input$extract_btn, {
+      # Get coordinates from appropriate source
+      coords <- if(input$coord_input_method == "file") {
+        req(input$coords_file)
+        tryCatch({
+          read.csv(input$coords_file$datapath, stringsAsFactors = FALSE)
+        }, error = function(e) {
+          showNotification(paste("Error reading coordinates file:", e$message), type = "error")
+          return(NULL)
+        })
+      } else {
+        manualCoords()
+      }
+      
+      req(coords)
+      
+      if(nrow(coords) == 0) {
+        showNotification("No coordinates found to extract from.", type = "error")
+        return()
+      }
+      
+      # Validate coordinate columns
+      if(!all(c("lat", "lon") %in% names(coords))) {
+        showNotification("Coordinates must have 'lat' and 'lon' columns.", type = "error")
+        return()
+      }
+      
+      # Add elevation column if missing
+      if(!"elevation" %in% names(coords)) {
+        coords$elevation <- 0
+      }
+      
+      # Add id column if missing
+      if(!"id" %in% names(coords)) {
+        coords$id <- paste0("Site_", 1:nrow(coords))
+      }
+      
+      # Get selected scenario
+      selected_ssp <- input$ssp_scenario
+      
+      withProgress(message = paste('Extracting', toupper(selected_ssp), 'bioclimatic variables...'), 
+                   value = 0, {
+                     tryCatch({
+                       incProgress(0.2, detail = "Locating raster file...")
+                       
+                       # Path to selected scenario
+                       tif_path <- file.path(worldclimDir, 
+                                             paste0("wc2.1_10m_bioc_EC-Earth3-Veg_", selected_ssp, "_2021-2040.tif"))
+                       
+                       if(!file.exists(tif_path)) {
+                         stop(paste("WorldClim file not found:", basename(tif_path)))
+                       }
+                       
+                       incProgress(0.2, detail = "Loading raster...")
+                       
+                       # Load the raster
+                       r <- terra::rast(tif_path)
+                       names(r) <- paste0("bio", 1:19)
+                       
+                       incProgress(0.2, detail = "Converting coordinates...")
+                       
+                       # Convert points to terra vector
+                       pts <- terra::vect(coords, geom = c("lon", "lat"), crs = "EPSG:4326")
+                       
+                       incProgress(0.2, detail = "Extracting values...")
+                       
+                       # Extract values
+                       bio_values <- terra::extract(r, pts)[, -1]  # Remove ID column from extract
+                       
+                       incProgress(0.1, detail = "Combining results...")
+                       
+                       # Combine with original coordinate data
+                       res <- cbind(
+                         coords %>% select(id, lat, lon, elevation), 
+                         bio_values
+                       )
+                       
+                       # Add scenario information as metadata
+                       attr(res, "scenario") <- selected_ssp
+                       attr(res, "extraction_date") <- Sys.time()
+                       
+                       finalData(res)
+                       
+                       incProgress(0.1, detail = "Complete!")
+                       
+                       output$extraction_status <- renderUI({
+                         div(
+                           class="alert alert-success",
+                           style="margin-top: 15px;",
+                           icon("check-circle"), 
+                           strong(" Success! "),
+                           sprintf("Extracted bioclimatic variables from %s scenario for %d location%s.", 
+                                   toupper(selected_ssp), 
+                                   nrow(res),
+                                   ifelse(nrow(res) > 1, "s", ""))
+                         )
+                       })
+                       
+                       showNotification(
+                         paste("Successfully extracted data for", nrow(res), "locations!"),
+                         type = "message",
+                         duration = 5
+                       )
+                       
+                     }, error = function(e) {
+                       output$extraction_status <- renderUI({
+                         div(
+                           class="alert alert-danger",
+                           style="margin-top: 15px;",
+                           icon("exclamation-triangle"), 
+                           strong(" Error: "),
+                           e$message
+                         )
+                       })
+                       showNotification(paste("Extraction Error:", e$message), type = "error", duration = 10)
+                     })
+                   })
+    })
+    
+    # --- 6. DATA PREVIEW TABLE ---
+    output$extracted_data_table <- renderDT({
+      req(finalData())
+      
+      datatable(
+        finalData(),
+        options = list(
+          scrollX = TRUE,
+          pageLength = 10,
+          dom = 'Bfrtip',
+          buttons = c('copy', 'csv', 'excel')
+        ),
+        rownames = FALSE,
+        caption = htmltools::tags$caption(
+          style = 'caption-side: top; text-align: left; color: #666;',
+          sprintf('Showing %d records with %d bioclimatic variables', 
+                  nrow(finalData()), 
+                  sum(grepl("^bio", names(finalData()))))
+        )
+      ) %>%
+        formatRound(columns = grep("^bio", names(finalData()), value = TRUE), digits = 2)
+    })
+    
+    # --- 7. DOWNLOAD UI AND HANDLER ---
+    output$download_ui <- renderUI({
+      req(finalData())
+      downloadButton(ns("download_extracted"), 
+                     "Download Extracted Data (CSV)", 
+                     class = "btn-success btn-lg",
+                     icon = icon("file-download"))
+    })
+    
+    output$download_extracted <- downloadHandler(
+      filename = function() { 
+        scenario <- attr(finalData(), "scenario")
+        scenario_text <- if(!is.null(scenario)) paste0("_", scenario) else ""
+        paste0("climate_data", scenario_text, "_", Sys.Date(), ".csv") 
+      },
+      content = function(file) { 
+        write.csv(finalData(), file, row.names = FALSE)
+      }
+    )
+    
+    # --- 8. RETURN THE DATA ---
+    return(reactive({
+      list(
+        data = finalData(),
+        scenario = attr(finalData(), "scenario"),
+        extraction_date = attr(finalData(), "extraction_date")
+      )
+    }))
+  })
+}
+
+# ============================================================
+# EXAMPLE APP (for testing the module)
+# ============================================================
+# Uncomment to test the module standalone
+# 
+# ui <- fluidPage(
+#   titlePanel("Climate Data Extraction Tool"),
+#   uploadOrExtractUI("climate")
+# )
+# 
+# server <- function(input, output, session) {
+#   climate_data <- uploadOrExtractServer(
+#     "climate",
+#     worldclimDir = "WorldClim_Data_2021_2040/"
+#   )
+# }
+# 
+# shinyApp(ui, server)
