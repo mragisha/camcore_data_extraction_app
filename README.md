@@ -63,28 +63,44 @@ You'll need to download WorldClim 2.1 climate data files:
 **File Structure:**
 ```
 data/
-├── WorldClim_Data_1981_2024/
-│   ├── BIO1_WORLD_TCgrid__CHIRPSppt_1981_2024.tif
-│   ├── BIO2_WORLD_TCgrid__CHIRPSppt_1981_2024.tif
-│   └── ... (BIO3 through BIO19)
+├── wc2.1_30s_elev.tif
 │
-├── WorldClim_Data_2021_2040/
-│   ├── wc2.1_5m_bioc_EC-Earth3-Veg_ssp126_2021-2040.tif
-│   ├── wc2.1_5m_bioc_EC-Earth3-Veg_ssp245_2021-2040.tif
-│   ├── wc2.1_5m_bioc_EC-Earth3-Veg_ssp370_2021-2040.tif
-│   └── wc2.1_5m_bioc_EC-Earth3-Veg_ssp585_2021-2040.tif
+├── EC-Earth3-Veg/
+│   ├── WorldClim_Data_1981_2024/
+│   │   ├── BIO1_WORLD_TCgrid__CHIRPSppt_1981_2024.tif
+│   │   ├── BIO2_WORLD_TCgrid__CHIRPSppt_1981_2024.tif
+│   │   └── ... (BIO3 through BIO19)
+│   │
+│   ├── WorldClim_Data_2021_2040/
+│   │   ├── wc2.1_5m_bioc_EC-Earth3-Veg_ssp126_2021-2040.tif
+│   │   ├── wc2.1_5m_bioc_EC-Earth3-Veg_ssp245_2021-2040.tif
+│   │   ├── wc2.1_5m_bioc_EC-Earth3-Veg_ssp370_2021-2040.tif
+│   │   └── wc2.1_5m_bioc_EC-Earth3-Veg_ssp585_2021-2040.tif
+│   │
+│   ├── WorldClim_Data_2041_2060/
+│   │   └── (same pattern as above)
+│   │
+│   ├── WorldClim_Data_2061_2080/
+│   │   └── (same pattern as above)
+│   │
+│   └── WorldClim_Data_2081_2100/
+│       └── (same pattern as above)
 │
-├── WorldClim_Data_2041_2060/
-│   ├── wc2.1_5m_bioc_EC-Earth3-Veg_ssp126_2041-2060.tif
-│   ├── wc2.1_5m_bioc_EC-Earth3-Veg_ssp245_2041-2060.tif
-│   ├── wc2.1_5m_bioc_EC-Earth3-Veg_ssp370_2041-2060.tif
-│   └── wc2.1_5m_bioc_EC-Earth3-Veg_ssp585_2041-2060.tif
-│
-├── WorldClim_Data_2061_2080/
-│   └── (same pattern as above)
-│
-└── WorldClim_Data_2081_2100/
-    └── (same pattern as above)
+└── ACCESS-CM2/
+    ├── WorldClim_Data_2021_2040/
+    │   ├── wc2.1_5m_bioc_ACCESS-CM2_ssp126_2021-2040.tif
+    │   ├── wc2.1_5m_bioc_ACCESS-CM2_ssp245_2021-2040.tif
+    │   ├── wc2.1_5m_bioc_ACCESS-CM2_ssp370_2021-2040.tif
+    │   └── wc2.1_5m_bioc_ACCESS-CM2_ssp585_2021-2040.tif
+    │
+    ├── WorldClim_Data_2041_2060/
+    │   └── (same pattern as above)
+    │
+    ├── WorldClim_Data_2061_2080/
+    │   └── (same pattern as above)
+    │
+    └── WorldClim_Data_2081_2100/
+        └── (same pattern as above)
 ```
 
 ## Project Structure
