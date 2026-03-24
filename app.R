@@ -358,7 +358,7 @@ server <- function(input, output, session) {
           scenario           <- input$scenario
           folder_path        <- file.path("data", model, paste0("WorldClim_Data_", time_period))
           period_with_hyphen <- gsub("_", "-", time_period)
-          file_pattern       <- paste0("wc2.1_5m_bioc_", model, "_", scenario,
+          file_pattern       <- paste0("wc2.1_10m_bioc_", model, "_", scenario,
                                        "_", period_with_hyphen, "\\.tif$")
           
           raster_file <- list.files(folder_path, pattern = file_pattern, full.names = TRUE)
@@ -479,7 +479,7 @@ server <- function(input, output, session) {
     
     data$has_data <- !is.na(data$bio1)
     
-    pal <- colorFactor(palette = c("red", "green"), domain = c(FALSE, TRUE))
+    pal <- colorFactor(palette = c("red", "#0051ff"), domain = c(FALSE, TRUE))
     
     id_col <- if("id"       %in% names(data)) "id"
               else if("location" %in% names(data)) "location"
@@ -516,7 +516,7 @@ server <- function(input, output, session) {
       ) %>%
       addLegend(
         position = "bottomright",
-        colors   = c("green", "red"),
+        colors   = c("#0051ff", "red"),
         labels   = c("Data extracted", "No data (ocean/water)"),
         title    = "Extraction Status"
       ) %>%
