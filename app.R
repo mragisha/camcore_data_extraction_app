@@ -115,7 +115,7 @@ ui <- fluidPage(
         condition = "input.time_period == '1981_2024'",
         div(class = "alert alert-info", 
             icon("info-circle"), 
-            " Historical data (1981-2024) is only available for EC-Earth3-Veg model.")
+            " Present data (1981-2024) uses the EC-Earth3-Veg model. Future scenarios use ACCESS-CM2.")
       )
     ),
     
@@ -177,10 +177,10 @@ server <- function(input, output, session) {
         "model",
         "Select Model:",
         choices  = c(
-          "EC-Earth3-Veg" = "EC-Earth3-Veg",
+          # "EC-Earth3-Veg" = "EC-Earth3-Veg",  # future scenarios not available for EC-Earth3-Veg
           "ACCESS-CM2"    = "ACCESS-CM2"
         ),
-        selected = "EC-Earth3-Veg"
+        selected = "ACCESS-CM2"
       )
     }
   })
