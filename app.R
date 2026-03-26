@@ -1,8 +1,12 @@
 library(shiny)
 library(dplyr)
 library(terra)
+library(geodata)
 library(DT)
 library(leaflet)
+
+# Persistent cache so geodata files are not re-downloaded each session
+GEODATA_CACHE <- tools::R_user_dir("camcore_app", which = "cache")
 
 # ============================================================
 # UI
@@ -75,7 +79,7 @@ ui <- fluidPage(
       h3("Step 2: Select Climate Data"),
       
       fluidRow(
-        column(6,
+        column(4,
           selectInput(
             "time_period",
             "Select Time Period:",
@@ -89,11 +93,14 @@ ui <- fluidPage(
             selected = "2021_2040"
           )
         ),
-        column(6,
+        column(4,
           uiOutput("model_selector")
+        ),
+        column(4,
+          uiOutput("resolution_selector")
         )
       ),
-      
+
       # SSP Scenario selection (only for future data)
       conditionalPanel(
         condition = "input.time_period != '1981_2024'",
@@ -109,13 +116,13 @@ ui <- fluidPage(
           selected = "ssp245"
         )
       ),
-      
+
       # Info message for historical data
       conditionalPanel(
         condition = "input.time_period == '1981_2024'",
-        div(class = "alert alert-info", 
-            icon("info-circle"), 
-            " Present data (1981-2024) uses the EC-Earth3-Veg model. Future scenarios use ACCESS-CM2.")
+        div(class = "alert alert-info",
+            icon("info-circle"),
+            " Historical data (1981-2024) uses the EC-Earth3-Veg model at 10 arc-minute resolution.")
       )
     ),
     
@@ -161,28 +168,44 @@ server <- function(input, output, session) {
   original_data  <- reactiveVal(NULL)
   has_user_id    <- reactiveVal(FALSE)
   
-  # Dynamic model selector based on time period
+  # Dynamic model selector (future only)
   output$model_selector <- renderUI({
-    time_period <- input$time_period
-    
-    if(time_period == "1981_2024") {
-      selectInput(
-        "model",
-        "Select Model:",
-        choices  = c("EC-Earth3-Veg" = "EC-Earth3-Veg"),
-        selected = "EC-Earth3-Veg"
-      )
-    } else {
-      selectInput(
-        "model",
-        "Select Model:",
-        choices  = c(
-          # "EC-Earth3-Veg" = "EC-Earth3-Veg",  # future scenarios not available for EC-Earth3-Veg
-          "ACCESS-CM2"    = "ACCESS-CM2"
-        ),
-        selected = "ACCESS-CM2"
-      )
-    }
+    req(input$time_period != "1981_2024")
+    selectInput(
+      "model",
+      "Select Model:",
+      choices = c(
+        "ACCESS-CM2"     = "ACCESS-CM2",
+        "ACCESS-ESM1-5"  = "ACCESS-ESM1-5",
+        "BCC-CSM2-MR"    = "BCC-CSM2-MR",
+        "CanESM5"        = "CanESM5",
+        "CNRM-CM6-1"     = "CNRM-CM6-1",
+        "CNRM-ESM2-1"    = "CNRM-ESM2-1",
+        "EC-Earth3-Veg"  = "EC-Earth3-Veg",
+        "GFDL-ESM4"      = "GFDL-ESM4",
+        "INM-CM5-0"      = "INM-CM5-0",
+        "IPSL-CM6A-LR"   = "IPSL-CM6A-LR",
+        "MIROC6"         = "MIROC6",
+        "MPI-ESM1-2-HR"  = "MPI-ESM1-2-HR",
+        "MRI-ESM2-0"     = "MRI-ESM2-0"
+      ),
+      selected = "ACCESS-CM2"
+    )
+  })
+
+  # Dynamic resolution selector (future only)
+  output$resolution_selector <- renderUI({
+    req(input$time_period != "1981_2024")
+    selectInput(
+      "resolution",
+      "Select Resolution:",
+      choices  = c(
+        "2.5 arc-minutes" = "2.5",
+        "5 arc-minutes"   = "5",
+        "10 arc-minutes"  = "10"
+      ),
+      selected = "5"
+    )
   })
   
   # Add coordinate manually
@@ -338,7 +361,8 @@ server <- function(input, output, session) {
         # 2. Extract bio variables
         if(time_period == "1981_2024") {
           
-          folder_path <- file.path("data", model, paste0("WorldClim_Data_", time_period))
+          all_dirs    <- list.dirs("data", recursive = TRUE)
+          folder_path <- all_dirs[grepl(paste0("WorldClim_Data_", time_period, "$"), all_dirs)][1]
           bio_values  <- data.frame(matrix(ncol = 19, nrow = nrow(coords)))
           names(bio_values) <- paste0("bio", 1:19)
           
@@ -354,17 +378,30 @@ server <- function(input, output, session) {
           }
           
         } else {
-          
+
           scenario           <- input$scenario
-          folder_path        <- file.path("data", model, paste0("WorldClim_Data_", time_period))
           period_with_hyphen <- gsub("_", "-", time_period)
-          file_pattern       <- paste0("wc2.1_10m_bioc_", model, "_", scenario,
-                                       "_", period_with_hyphen, "\\.tif$")
-          
-          raster_file <- list.files(folder_path, pattern = file_pattern, full.names = TRUE)
-          if(length(raster_file) == 0) stop("Climate raster file not found on server.")
-          
-          r          <- terra::rast(raster_file[1])
+          ssp_num            <- gsub("ssp", "", scenario)   # geodata wants "245" not "ssp245"
+
+          res_val <- as.numeric(input$resolution)
+          incProgress(0.20, detail = "Downloading/loading future climate raster...")
+          r <- tryCatch(
+            geodata::cmip6_world(
+              model = model,
+              ssp   = ssp_num,
+              time  = period_with_hyphen,
+              var   = "bioc",
+              res   = res_val,
+              path  = GEODATA_CACHE
+            ),
+            error = function(e) {
+              stop(sprintf(
+                "Data not available for %s at %s arc-minutes (%s, %s). Try a coarser resolution (5 or 10 arc-minutes).",
+                model, res_val, scenario, period_with_hyphen
+              ))
+            }
+          )
+
           bio_values <- terra::extract(r, pts)[, -1]
           names(bio_values) <- paste0("bio", 1:ncol(bio_values))
         }
@@ -426,13 +463,13 @@ server <- function(input, output, session) {
           crs  = "EPSG:4326"
         )
         
-        elev_file <- file.path("data", "wc2.1_30s_elev.tif")
-        if(file.exists(elev_file)) {
-          elev_rast          <- terra::rast(elev_file)
+        tryCatch({
+          elev_res           <- if(time_period == "1981_2024") 10 else as.numeric(input$resolution)
+          elev_rast          <- geodata::elevation_global(res = elev_res, path = GEODATA_CACHE)
           final_df$elevation <- terra::extract(elev_rast, pts_filtered)[, 2]
-        } else {
-          final_df$elevation <- NA_real_
-        }
+        }, error = function(e) {
+          final_df$elevation <<- NA_real_
+        })
         
         # 8. Reorder columns: id-like → lat → lon → elevation → bio1 … bio19
         bio_ordered     <- bio_cols[order(as.numeric(gsub("[^0-9]", "", bio_cols)))]
