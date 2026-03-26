@@ -1,207 +1,189 @@
 # Climate Data Extraction Tool
 
-A RShiny application for extracting bioclimatic variables from WorldClim 2.1 climate data based on geographic coordinates.
+A RShiny application for extracting bioclimatic variables and elevation from WorldClim 2.1 climate data based on geographic coordinates.
 
 ## Overview
 
-This tool allows researchers and analysts to extract 19 bioclimatic variables (temperature and precipitation data) for any location on Earth using historical data (1981-2024) or future climate projections (2021-2100) under different emissions scenarios.
+This tool allows researchers and analysts to extract 19 bioclimatic variables plus elevation for any location on Earth using historical data (1981-2024) or future climate projections (2021-2100) under different emissions scenarios.
+
+Future climate data is streamed directly from the [WorldClim / UC Davis geodata server](https://geodata.ucdavis.edu) — no large raster files need to be stored locally.
+
+---
 
 ## Features
 
-- **Multiple Input Methods**
-  - Manual coordinate entry (latitude/longitude)
-  - CSV file upload with flexible column naming
-  
-- **Time Period Selection**
-  - Historical: 1981-2024
-  - Near Future: 2021-2040
-  - Mid Future: 2041-2060
-  - Late Future: 2061-2080
-  - End Century: 2081-2100
+- **Multiple input methods** — manual coordinate entry or CSV file upload
+- **Historical data (1981-2024)** — loaded from local files (EC-Earth3-Veg, fixed 10 arc-min resolution)
+- **Future projections (2021-2100)** — downloaded on demand via the `geodata` package
+- **13 CMIP6 models** available for future scenarios
+- **4 SSP emissions scenarios** for future projections
+- **Selectable resolution** for future data (2.5, 5, or 10 arc-minutes)
+- **Elevation extraction** alongside bioclimatic variables
+- **Interactive map** showing extraction locations
+- **CSV download** of all results
 
-- **Climate Scenarios (for future projections)**
-  - SSP1-2.6: Low emissions pathway
-  - SSP2-4.5: Medium emissions pathway
-  - SSP3-7.0: High emissions pathway
-  - SSP5-8.5: Very high emissions pathway
+---
 
 ## Installation
 
 ### Prerequisites
 
-1. **R** (version 4.0 or higher)
-2. **RStudio** (recommended)
+- **R** version 4.0 or higher
+- **RStudio** (recommended)
+- Internet connection (required for future climate data and elevation downloads)
 
-### Required R Packages
-
-Install the required packages using:
+### Install Required R Packages
 
 ```r
-install.packages(c(
-  "shiny",
-  "dplyr",
-  "terra",
-  "DT"
-))
+install.packages(c("shiny", "dplyr", "terra", "geodata", "DT", "leaflet"))
 ```
 
-### WorldClim Data Files
-
-You'll need to download WorldClim 2.1 climate data files:
-
-#### For Historical Data (1981-2024)
-- Download individual bioclimatic variable files (BIO1-BIO19)
-- Place in: `data/WorldClim_Data_1981_2024/`
-- Files should be named: `BIO1_WORLD_*.tif`, `BIO2_WORLD_*.tif`, etc.
-
-#### For Future Projections (2021-2100)
-- Download from [WorldClim CMIP6 Downloads](https://www.worldclim.org/data/cmip6/cmip6_clim5m.html)
-- Model: EC-Earth3-Veg
-- Resolution: 5 arc-minutes (~9km at equator)
-- Download all 4 SSP scenarios for each time period
-
-**File Structure:**
-```
-data/
-├── wc2.1_30s_elev.tif
-│
-├── EC-Earth3-Veg/
-│   ├── WorldClim_Data_1981_2024/
-│   │   ├── BIO1_WORLD_TCgrid__CHIRPSppt_1981_2024.tif
-│   │   ├── BIO2_WORLD_TCgrid__CHIRPSppt_1981_2024.tif
-│   │   └── ... (BIO3 through BIO19)
-│   │
-│   ├── WorldClim_Data_2021_2040/
-│   │   ├── wc2.1_5m_bioc_EC-Earth3-Veg_ssp126_2021-2040.tif
-│   │   ├── wc2.1_5m_bioc_EC-Earth3-Veg_ssp245_2021-2040.tif
-│   │   ├── wc2.1_5m_bioc_EC-Earth3-Veg_ssp370_2021-2040.tif
-│   │   └── wc2.1_5m_bioc_EC-Earth3-Veg_ssp585_2021-2040.tif
-│   │
-│   ├── WorldClim_Data_2041_2060/
-│   │   └── (same pattern as above)
-│   │
-│   ├── WorldClim_Data_2061_2080/
-│   │   └── (same pattern as above)
-│   │
-│   └── WorldClim_Data_2081_2100/
-│       └── (same pattern as above)
-│
-└── ACCESS-CM2/
-    ├── WorldClim_Data_2021_2040/
-    │   ├── wc2.1_5m_bioc_ACCESS-CM2_ssp126_2021-2040.tif
-    │   ├── wc2.1_5m_bioc_ACCESS-CM2_ssp245_2021-2040.tif
-    │   ├── wc2.1_5m_bioc_ACCESS-CM2_ssp370_2021-2040.tif
-    │   └── wc2.1_5m_bioc_ACCESS-CM2_ssp585_2021-2040.tif
-    │
-    ├── WorldClim_Data_2041_2060/
-    │   └── (same pattern as above)
-    │
-    ├── WorldClim_Data_2061_2080/
-    │   └── (same pattern as above)
-    │
-    └── WorldClim_Data_2081_2100/
-        └── (same pattern as above)
-```
+---
 
 ## Project Structure
 
 ```
-your_project/
-├── app.R                           # Main Shiny application
-├── data/                           # WorldClim data files (see above)
-├── diagnostic_script.R             # Diagnostic tool for troubleshooting
-├── sample_coordinates.csv          # Sample input file
-└── README.md                       # This file
+camcore_data_extraction_app/
+├── app.R                   # Main Shiny application
+├── README.md               # This file
+└── data/
+    └── EC-Earth3-Veg/
+        └── WorldClim_Data_1981_2024/
+            ├── BIO1_WORLD_TCgrid__CHIRPSppt_1981_2024.tif
+            ├── BIO2_WORLD_TCgrid__CHIRPSppt_1981_2024.tif
+            └── ... (BIO3 through BIO19)
 ```
 
-## Usage
+> Future climate files and elevation are downloaded automatically on first use and cached locally. No manual download is needed.
 
-### Starting the Application
+---
 
-1. Open RStudio
-2. Set your working directory to the project folder:
+## How to Run
+
+1. Open RStudio and set the working directory to the project folder:
    ```r
-   setwd("path/to/your/project")
+   setwd("path/to/camcore_data_extraction_app")
    ```
-3. Run the application:
+2. Run the app:
    ```r
    shiny::runApp("app.R")
    ```
-4. The app will open in your default web browser
+3. The app opens in your default web browser.
 
-### Step-by-Step Workflow
+---
 
-#### Step 1: Provide Coordinates
+## Step-by-Step Usage
 
-**Option A: Manual Entry**
-1. Select "Enter manually"
-2. Enter latitude (-90 to 90)
-3. Enter longitude (-180 to 180)
-4. Click "Add" to add to the table
-5. Repeat for multiple coordinates
-6. Use "Clear All" to reset if needed
+### Step 1 — Provide Coordinates
 
-**Option B: Upload CSV File**
-1. Select "Upload CSV file"
-2. Prepare a CSV with columns starting with:
-   - `lat` (e.g., latitude, lat, lat_deg)
-   - `lon` (e.g., longitude, lon, lon_deg)
-3. Click "Browse" and select your file
-4. The app automatically detects and uses the correct columns
-5. All other columns are ignored
+Choose how to enter your locations:
 
-#### Step 2: Select Climate Data
+**Option A: Manual entry**
+1. Select **"Enter manually"**
+2. Type a latitude value (between -90 and 90)
+3. Type a longitude value (between -180 and 180)
+4. Click **Add** — the coordinate appears in the table below
+5. Repeat for as many locations as needed
+6. Use **Clear All** to start over
 
-1. **Time Period**: Choose from dropdown
-   - Historical (1981-2024) - observed data
-   - 2021-2040 / 2041-2060 / 2061-2080 / 2081-2100 - projections
+**Option B: Upload a CSV file**
+1. Select **"Upload CSV file"**
+2. Your CSV must have at least two columns:
+   - One starting with `lat` (e.g., `lat`, `latitude`, `lat_dd`)
+   - One starting with `lon` (e.g., `lon`, `longitude`, `lon_dd`)
+3. Any additional columns (e.g., site ID, species name) are preserved in the output
+4. Click **Browse** and select your file
 
-2. **Model**: Currently EC-Earth3-Veg (default)
+---
 
-3. **Climate Scenario** (future periods only):
-   - SSP1-2.6: Sustainable development, low emissions
-   - SSP2-4.5: Middle-of-the-road scenario
-   - SSP3-7.0: Regional rivalry, high emissions
-   - SSP5-8.5: Fossil-fueled development, very high emissions
+### Step 2 — Select Climate Data
 
-#### Step 3: Extract Data
+**Time Period** — choose one:
+| Option | Period | Data source |
+|---|---|---|
+| Historical | 1981–2024 | Local files (EC-Earth3-Veg) |
+| Near Future | 2021–2040 | Downloaded via geodata |
+| Mid Future | 2041–2060 | Downloaded via geodata |
+| Late Future | 2061–2080 | Downloaded via geodata |
+| End Century | 2081–2100 | Downloaded via geodata |
 
-1. Click "Extract Bio Variables"
-2. Monitor progress bar
-3. Wait for "Success!" message
+**For future periods, two additional options appear:**
 
-#### Step 4: Review and Download
+**Model** — select one of 13 CMIP6 models:
+- ACCESS-CM2, ACCESS-ESM1-5, BCC-CSM2-MR, CanESM5
+- CNRM-CM6-1, CNRM-ESM2-1, EC-Earth3-Veg, GFDL-ESM4
+- INM-CM5-0, IPSL-CM6A-LR, MIROC6, MPI-ESM1-2-HR, MRI-ESM2-0
 
-1. Review extracted data in the preview table
-2. Check for any NA values (indicating water/ocean locations)
-3. Click "Download CSV" to save results
+**Resolution** — spatial resolution of the output (default: 5 arc-minutes):
+| Resolution | Approx. grid size | File size | Note |
+|---|---|---|---|
+| 2.5 arc-minutes | ~5 km | Large | Not available for all models |
+| 5 arc-minutes | ~10 km | Medium | Recommended default |
+| 10 arc-minutes | ~20 km | Small | Fastest download |
 
-### Output Format
+> If a model is not available at 2.5 arc-minutes, the app will show an error suggesting you switch to 5 or 10 arc-minutes.
 
-The downloaded CSV contains:
+**SSP Scenario** (future only) — select one:
+| Scenario | Description |
+|---|---|
+| SSP1-2.6 | Low emissions — sustainable development pathway |
+| SSP2-4.5 | Medium emissions — middle-of-the-road pathway |
+| SSP3-7.0 | High emissions — regional rivalry pathway |
+| SSP5-8.5 | Very high emissions — fossil-fueled development |
+
+---
+
+### Step 3 — Extract Bioclimatic Variables
+
+Click **Extract Bio Variables**.
+
+- A progress bar tracks extraction across all 19 variables plus elevation
+- On the first run for a new model/scenario/resolution combination, the raster file is downloaded from WorldClim (~30–50 MB) and cached for future use
+- Subsequent runs with the same selection load instantly from cache
+
+---
+
+### Step 4 — Review and Download Results
+
+Once extraction is complete:
+1. An **interactive map** shows all your locations (blue = data extracted, red = no data / ocean)
+2. Click any marker to see its coordinates, elevation, and extraction status
+3. A **data preview table** shows all extracted values
+4. Click **Download CSV** to save the full results
+
+---
+
+## Output Format
+
+The downloaded CSV includes all columns from your input file (if uploaded) plus:
 
 | Column | Description |
-|--------|-------------|
-| id | Auto-generated site ID (Site_1, Site_2, etc.) |
-| latitude | Input latitude |
-| longitude | Input longitude |
-| bio1-bio19 | Bioclimatic variables (see below) |
+|---|---|
+| id | Auto-generated site ID (Site_1, Site_2, ...) — only added if your CSV had no ID column |
+| lat | Latitude |
+| lon | Longitude |
+| elevation | Elevation in metres (from WorldClim) |
+| bio1–bio19 | 19 bioclimatic variables (see table below) |
+
+> Rows where all bio variables are NA (e.g., ocean or outside raster extent) are automatically removed from the output.
+
+---
 
 ## Bioclimatic Variables
 
 | Variable | Description | Units |
-|----------|-------------|-------|
-| bio1 | Annual Mean Temperature | °C × 10 |
-| bio2 | Mean Diurnal Range | °C × 10 |
+|---|---|---|
+| bio1 | Annual Mean Temperature | °C |
+| bio2 | Mean Diurnal Range | °C |
 | bio3 | Isothermality (bio2/bio7 × 100) | % |
-| bio4 | Temperature Seasonality (std dev × 100) | °C × 100 |
-| bio5 | Max Temperature of Warmest Month | °C × 10 |
-| bio6 | Min Temperature of Coldest Month | °C × 10 |
-| bio7 | Temperature Annual Range (bio5-bio6) | °C × 10 |
-| bio8 | Mean Temperature of Wettest Quarter | °C × 10 |
-| bio9 | Mean Temperature of Driest Quarter | °C × 10 |
-| bio10 | Mean Temperature of Warmest Quarter | °C × 10 |
-| bio11 | Mean Temperature of Coldest Quarter | °C × 10 |
+| bio4 | Temperature Seasonality | °C × 100 |
+| bio5 | Max Temperature of Warmest Month | °C |
+| bio6 | Min Temperature of Coldest Month | °C |
+| bio7 | Temperature Annual Range (bio5–bio6) | °C |
+| bio8 | Mean Temperature of Wettest Quarter | °C |
+| bio9 | Mean Temperature of Driest Quarter | °C |
+| bio10 | Mean Temperature of Warmest Quarter | °C |
+| bio11 | Mean Temperature of Coldest Quarter | °C |
 | bio12 | Annual Precipitation | mm |
 | bio13 | Precipitation of Wettest Month | mm |
 | bio14 | Precipitation of Driest Month | mm |
@@ -210,4 +192,3 @@ The downloaded CSV contains:
 | bio17 | Precipitation of Driest Quarter | mm |
 | bio18 | Precipitation of Warmest Quarter | mm |
 | bio19 | Precipitation of Coldest Quarter | mm |
-
