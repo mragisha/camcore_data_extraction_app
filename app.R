@@ -5,8 +5,13 @@ library(geodata)
 library(DT)
 library(leaflet)
 
-# Persistent cache so geodata files are not re-downloaded each session
-GEODATA_CACHE <- tools::R_user_dir("camcore_app", which = "cache")
+# Persistent cache — falls back to tempdir() if the user cache dir is not writable
+GEODATA_CACHE <- tryCatch({
+  cache_dir <- tools::R_user_dir("camcore_app", which = "cache")
+  dir.create(cache_dir, recursive = TRUE, showWarnings = FALSE)
+  if (!file.access(cache_dir, 2) == 0) stop("not writable")
+  cache_dir
+}, error = function(e) tempdir())
 
 # ============================================================
 # UI
@@ -396,8 +401,8 @@ server <- function(input, output, session) {
             ),
             error = function(e) {
               stop(sprintf(
-                "Data not available for %s at %s arc-minutes (%s, %s). Try a coarser resolution (5 or 10 arc-minutes).",
-                model, res_val, scenario, period_with_hyphen
+                "Failed to load climate data for %s at %s arc-minutes (%s, %s). This combination may not be available — try 5 or 10 arc-minutes. Detail: %s",
+                model, res_val, scenario, period_with_hyphen, conditionMessage(e)
               ))
             }
           )
