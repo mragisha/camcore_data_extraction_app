@@ -230,7 +230,11 @@ server <- function(input, output, session) {
       showNotification("Longitude must be between -180 and 180", type = "error")
       return()
     }
-    
+    if(nrow(coords_data()) >= 10000) {
+      showNotification("Limit reached: maximum 10,000 coordinates allowed per extraction.", type = "error")
+      return()
+    }
+
     coords_data(rbind(coords_data(), data.frame(latitude = lat, longitude = lon)))
     original_data(NULL)
     has_user_id(FALSE)
@@ -283,10 +287,18 @@ server <- function(input, output, session) {
       valid_rows <- complete.cases(coords)
       coords     <- coords[valid_rows, ]
       original_data(data[valid_rows, ])
-      
+
       if(nrow(coords) == 0) {
         showNotification("No valid coordinates found in the file", type = "error")
         return()
+      }
+      if(nrow(coords) > 10000) {
+        showNotification(
+          paste0("File contains ", nrow(coords), " coordinates — only the first 10,000 will be loaded. Please split your file to process the rest."),
+          type = "warning", duration = 8
+        )
+        coords        <- coords[1:10000, ]
+        original_data(data[valid_rows, ][1:10000, ])
       }
       if(any(coords$latitude < -90 | coords$latitude > 90, na.rm = TRUE)) {
         showNotification("Some latitude values are out of range (-90 to 90)", type = "error")
@@ -344,6 +356,10 @@ server <- function(input, output, session) {
       showNotification("Please add coordinates first", type = "error")
       return()
     }
+    if(nrow(coords) > 10000) {
+      showNotification("Too many coordinates: maximum 10,000 allowed per extraction.", type = "error")
+      return()
+    }
     
     model       <- input$model
     time_period <- input$time_period
@@ -359,20 +375,22 @@ server <- function(input, output, session) {
     
     withProgress(message = 'Extracting and Sanitizing Data...', value = 0, {
       tryCatch({
-        
+
         # 1. Build SpatVector from ALL original coordinates
+        incProgress(0.05, detail = "Building spatial points...")
         pts <- terra::vect(coords, geom = c("longitude", "latitude"), crs = "EPSG:4326")
-        
+
         # 2. Extract bio variables
         if(time_period == "1981_2024") {
-          
+
+          incProgress(0.05, detail = "Locating historical raster files...")
           all_dirs    <- list.dirs("data", recursive = TRUE)
           folder_path <- all_dirs[grepl(paste0("WorldClim_Data_", time_period, "$"), all_dirs)][1]
           bio_values  <- data.frame(matrix(ncol = 19, nrow = nrow(coords)))
           names(bio_values) <- paste0("bio", 1:19)
-          
+
           for(i in 1:19) {
-            incProgress(0.04, detail = paste("Extracting bio", i))
+            incProgress(0.03, detail = paste0("Extracting bio", i, " of 19..."))
             bio_file <- list.files(folder_path,
                                    pattern    = paste0("^BIO", i, "_WORLD.*\\.tif$"),
                                    full.names = TRUE, ignore.case = TRUE)
@@ -381,7 +399,7 @@ server <- function(input, output, session) {
               bio_values[, i] <- terra::extract(r, pts)[, 2]
             }
           }
-          
+
         } else {
 
           scenario           <- input$scenario
@@ -389,7 +407,7 @@ server <- function(input, output, session) {
           ssp_num            <- gsub("ssp", "", scenario)   # geodata wants "245" not "ssp245"
 
           res_val <- as.numeric(input$resolution)
-          incProgress(0.20, detail = "Downloading/loading future climate raster...")
+          incProgress(0.35, detail = "Downloading/loading future climate raster (may take a moment)...")
           r <- tryCatch(
             geodata::cmip6_world(
               model = model,
@@ -407,11 +425,13 @@ server <- function(input, output, session) {
             }
           )
 
+          incProgress(0.25, detail = "Extracting 19 bioclimatic variables...")
           bio_values <- terra::extract(r, pts)[, -1]
           names(bio_values) <- paste0("bio", 1:ncol(bio_values))
         }
-        
+
         # 3. Merge bio values with coordinate metadata
+        incProgress(0.05, detail = "Merging and cleaning column names...")
         if(!is.null(original_data())) {
           combined_df <- cbind(original_data(), bio_values)
         } else {
@@ -451,10 +471,12 @@ server <- function(input, output, session) {
         if(nrow(final_df) == 0) {
           stop("Extraction resulted in 0 rows. All coordinates are likely in the ocean or outside the climate map extent.")
         }
-        
+
+        incProgress(0.05, detail = paste0("Filtered to ", nrow(final_df), " valid land points..."))
+
         # 7. Extract elevation from the filtered points only
         #    Row count of pts_filtered == nrow(final_df) — no mismatch possible
-        incProgress(0.05, detail = "Extracting elevation...")
+        incProgress(0.10, detail = "Extracting elevation data...")
         
         lon_col_name <- coord_cols[grep("^lon", coord_cols, ignore.case = TRUE)[1]]
         lat_col_name <- coord_cols[grep("^lat", coord_cols, ignore.case = TRUE)[1]]
@@ -484,7 +506,8 @@ server <- function(input, output, session) {
           names(final_df)
         )
         final_df <- final_df[, final_col_order]
-        
+
+        incProgress(0.05, detail = "Finalizing output...")
         extracted_data(final_df)
         
         # 9. Success message — no popup warnings, everything inline
